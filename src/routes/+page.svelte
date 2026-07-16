@@ -1,47 +1,55 @@
 <script lang="ts">
-	import { parsePizza } from '$lib/parser';
-	import { ORDERS, matchOrder, objectStateLines, TOPPINGS, normalize } from '$lib/pizza';
+	import { parseProgram } from '$lib/parser';
+	import { ORDERS, matchOrder, instanceStateLines } from '$lib/pizza';
 	import OrderCard from '$lib/components/OrderCard.svelte';
-	import PizzaView from '$lib/components/PizzaView.svelte';
+	import InstanceTile from '$lib/components/InstanceTile.svelte';
+	import CodeEditor from '$lib/components/CodeEditor.svelte';
 
 	const CLASS_SOURCE = `public class Pizza {
     String size;
     String sauce;
     String[] toppings;
 
-    // The constructor: what you must call with "new"
+    // Constructor — call it with "new"
     public Pizza(String size, String sauce, String... toppings) {
         this.size = size;
         this.sauce = sauce;
         this.toppings = toppings;
     }
+}
+
+public class Drink {
+    String flavor;
+
+    public Drink(String flavor) {
+        this.flavor = flavor;
+    }
 }`;
 
-	const STARTER = `// Build the pizza this customer ordered.
-// The constructor takes: a size, a sauce, then any number of toppings.
+	const STARTER = `// Create ONE object per item the order needs.
+// You have two classes:
+//   Pizza(size, sauce, toppings...)   and   Drink(flavor)
 
-Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
+Pizza p1 = new Pizza("medium", "tomato", "cheese");`;
 
 	let level = $state(0);
 	let code = $state(STARTER);
 	let attempted = $state(false);
 	let solved = $state<boolean[]>(ORDERS.map(() => false));
+	let classView = $state<{ refresh: () => void }>();
 
 	const order = $derived(ORDERS[level]);
-	const parse = $derived(parsePizza(code));
-	const pizza = $derived(parse.ok ? parse.pizza : null);
-	const match = $derived(pizza ? matchOrder(pizza, order) : null);
-	const stateLines = $derived(pizza ? objectStateLines(pizza) : []);
+	const outcome = $derived(parseProgram(code));
+	const instances = $derived(outcome.instances);
+	const parseErrors = $derived(outcome.errors);
+	const match = $derived(matchOrder(instances, order));
+	const stateLines = $derived(instanceStateLines(instances));
 	const solvedCount = $derived(solved.filter(Boolean).length);
 	const allDone = $derived(solvedCount === ORDERS.length);
 
-	function label(t: string): string {
-		return TOPPINGS[normalize(t)]?.label ?? t;
-	}
-
 	function serve() {
 		attempted = true;
-		if (parse.ok && match?.perfect) {
+		if (parseErrors.length === 0 && match.perfect) {
 			solved[level] = true;
 		}
 	}
@@ -60,58 +68,51 @@ Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
 		attempted = false;
 		solved = ORDERS.map(() => false);
 	}
-
-	// Tab inserts spaces instead of leaving the editor.
-	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Tab') {
-			e.preventDefault();
-			const el = e.currentTarget as HTMLTextAreaElement;
-			const { selectionStart: s, selectionEnd: end } = el;
-			code = code.slice(0, s) + '    ' + code.slice(end);
-			queueMicrotask(() => (el.selectionStart = el.selectionEnd = s + 4));
-		}
-	}
 </script>
 
 <svelte:head>
 	<title>Pizza Constructor — learn Java classes & objects</title>
 	<meta
 		name="description"
-		content="Write Java to instantiate a Pizza and fulfill the customer's order. Learn classes, objects and constructors."
+		content="Write Java to instantiate Pizza and Drink objects and fulfill each customer's order. Learn classes, objects, constructors and multiple instances."
 	/>
 </svelte:head>
 
 <div class="app">
 	<header class="topbar">
 		<h1>🍕 Pizza Constructor</h1>
-		<p class="tag">Instantiate a <code>Pizza</code> object to fulfill each order.</p>
+		<p class="tag">Instantiate <code>Pizza</code> and <code>Drink</code> objects to fulfill each order.</p>
 		<div class="score" aria-live="polite">Served: {solvedCount} / {ORDERS.length}</div>
 	</header>
 
 	<main class="panes">
 		<!-- LEFT: the code -->
 		<section class="pane editor-pane">
-			<details class="class-def">
-				<summary>📘 The <code>Pizza</code> class (given to you)</summary>
-				<pre>{CLASS_SOURCE}</pre>
+			<details
+				class="class-def"
+				ontoggle={(e) => {
+					if ((e.currentTarget as HTMLDetailsElement).open) classView?.refresh();
+				}}
+			>
+				<summary>📘 The classes (given to you)</summary>
+				<CodeEditor
+					bind:this={classView}
+					value={CLASS_SOURCE}
+					readonly
+					ariaLabel="The Pizza and Drink class definitions"
+				/>
 				<p class="note">
-					A <strong>class</strong> is the recipe. Calling the <strong>constructor</strong> with
-					<code>new</code> bakes one actual <strong>object</strong>.
+					A <strong>class</strong> is the mold. Each <code>new</code> call runs its
+					<strong>constructor</strong> and pours one more <strong>object</strong> — write one
+					<code>new</code> per item.
 				</p>
 			</details>
 
-			<label class="editor-label" for="code">Your code</label>
-			<textarea
-				id="code"
-				class="editor"
-				spellcheck="false"
-				autocapitalize="off"
-				bind:value={code}
-				onkeydown={onKeydown}
-			></textarea>
+			<span class="editor-label">Your code</span>
+			<CodeEditor bind:value={code} ariaLabel="Your Java code" />
 
 			<div class="actions">
-				<button class="serve" onclick={serve} disabled={solved[level]}>Serve pizza 🍕</button>
+				<button class="serve" onclick={serve} disabled={solved[level]}>Serve order 🍕</button>
 				{#if solved[level]}
 					<button class="next" onclick={nextOrder} disabled={level === ORDERS.length - 1}>
 						Next order →
@@ -121,28 +122,37 @@ Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
 
 			<!-- feedback -->
 			{#if attempted}
-				{#if !parse.ok}
+				{#if parseErrors.length}
 					<div class="feedback error">
-						<strong>⚠️ {parse.error}</strong>
-						{#if parse.hint}<p>{parse.hint}</p>{/if}
+						<strong>⚠️ Fix your code:</strong>
+						<ul>
+							{#each parseErrors as e, i (i)}
+								<li>
+									{#if e.ordinal > 0}<b>{e.varName ?? 'Statement ' + e.ordinal}</b>
+										{#if e.className}({e.className}){/if}: {/if}{e.error}
+									{#if e.hint}<span class="hint">{e.hint}</span>{/if}
+								</li>
+							{/each}
+						</ul>
 					</div>
-				{:else if match?.perfect}
+				{:else if match.perfect}
 					<div class="feedback success">
 						<strong>✅ Order served! {order.customer} is happy.</strong>
-						<p>Your <code>new Pizza(...)</code> call built exactly the object they asked for.</p>
+						<p>
+							You instantiated {instances.length} object{instances.length === 1 ? '' : 's'} — exactly
+							the order.
+						</p>
 					</div>
-				{:else if match}
+				{:else}
 					<div class="feedback warn">
-						<strong>🤔 Not quite — check the object you built:</strong>
+						<strong>🤔 Not quite — compare what you built to the order:</strong>
 						<ul>
-							{#if !match.sizeOk}<li>The <b>size</b> doesn't match the order.</li>{/if}
-							{#if !match.sauceOk}<li>The <b>sauce</b> doesn't match the order.</li>{/if}
-							{#if match.missingToppings.length}
-								<li>Missing topping(s): {match.missingToppings.map(label).join(', ')}.</li>
-							{/if}
-							{#if match.extraToppings.length}
-								<li>Remove extra topping(s): {match.extraToppings.map(label).join(', ')}.</li>
-							{/if}
+							{#each match.missing as d (d.text)}
+								<li>Missing: <b>{d.n}×</b> {d.text}.</li>
+							{/each}
+							{#each match.extra as d (d.text)}
+								<li>Remove: <b>{d.n}×</b> {d.text}.</li>
+							{/each}
 						</ul>
 					</div>
 				{/if}
@@ -155,7 +165,7 @@ Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
 				<div class="done">
 					<div class="confetti">🎉</div>
 					<h2>All orders served!</h2>
-					<p>You instantiated {ORDERS.length} different <code>Pizza</code> objects from one class.</p>
+					<p>You instantiated pizzas and drinks from just two classes — one <code>new</code> at a time.</p>
 					<button class="next" onclick={restart}>Play again</button>
 				</div>
 			{:else}
@@ -163,15 +173,25 @@ Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
 			{/if}
 
 			<div class="stage">
-				<PizzaView {pizza} />
+				{#if instances.length}
+					<div class="tray">
+						{#each instances as inst, i (i)}
+							<InstanceTile instance={inst} index={i} />
+						{/each}
+					</div>
+				{:else}
+					<p class="empty">
+						No objects yet — write some <code>new</code> statements and hit <strong>Serve</strong>.
+					</p>
+				{/if}
 			</div>
 
 			<details class="object-state" open>
-				<summary>🧱 The object you created</summary>
-				{#if pizza}
+				<summary>🧱 The objects you created</summary>
+				{#if instances.length}
 					<pre>{stateLines.join('\n')}</pre>
 				{:else}
-					<p class="note">Once your code parses, the resulting object's fields show up here.</p>
+					<p class="note">Each object you instantiate appears here, with the variable pointing to it.</p>
 				{/if}
 			</details>
 		</section>
@@ -210,8 +230,7 @@ Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
 		margin: 0;
 		background: var(--bg);
 		color: var(--text);
-		font-family:
-			system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+		font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 	}
 
 	.app {
@@ -266,7 +285,6 @@ Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
 		cursor: pointer;
 		font-weight: 600;
 	}
-	.class-def pre,
 	.object-state pre {
 		background: var(--code-bg);
 		color: var(--code-text);
@@ -277,6 +295,9 @@ Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
 		line-height: 1.5;
 		margin: 0.7rem 0 0;
 	}
+	.class-def :global(.cm-host) {
+		margin-top: 0.7rem;
+	}
 	.note {
 		color: var(--muted);
 		font-size: 0.85rem;
@@ -284,27 +305,9 @@ Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
 	}
 
 	.editor-label {
+		display: block;
 		font-weight: 600;
 		font-size: 0.85rem;
-	}
-	.editor {
-		width: 100%;
-		box-sizing: border-box;
-		min-height: 220px;
-		resize: vertical;
-		background: var(--code-bg);
-		color: var(--code-text);
-		border: 1px solid var(--border);
-		border-radius: 10px;
-		padding: 1rem;
-		font-family: ui-monospace, 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
-		font-size: 0.95rem;
-		line-height: 1.6;
-		tab-size: 4;
-	}
-	.editor:focus {
-		outline: 2px solid var(--accent);
-		outline-offset: 1px;
 	}
 
 	.actions {
@@ -343,6 +346,14 @@ Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
 		margin: 0.5rem 0 0;
 		padding-left: 1.2rem;
 	}
+	.feedback li {
+		margin: 0.2rem 0;
+	}
+	.feedback .hint {
+		display: block;
+		color: var(--muted);
+		font-size: 0.85em;
+	}
 	.feedback.error {
 		background: color-mix(in srgb, var(--accent) 12%, var(--card));
 	}
@@ -357,9 +368,23 @@ Pizza pizza = new Pizza("medium", "tomato", "cheese");`;
 		background: var(--card);
 		border: 1px solid var(--border);
 		border-radius: 14px;
-		padding: 1.5rem 1rem;
+		padding: 1.25rem 1rem;
+		min-height: 180px;
 		display: flex;
+		align-items: center;
 		justify-content: center;
+	}
+	.tray {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.8rem;
+		justify-content: center;
+		width: 100%;
+	}
+	.empty {
+		color: var(--muted);
+		text-align: center;
+		font-size: 0.9rem;
 	}
 
 	.done {

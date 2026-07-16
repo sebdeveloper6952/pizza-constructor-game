@@ -1,33 +1,55 @@
 /**
- * A tiny, forgiving parser for a single Java constructor call:
+ * A tiny, forgiving parser for Java constructor calls. It scans the student's
+ * code for EVERY object instantiation:
  *
- *     Pizza pizza = new Pizza("large", "tomato", "pepperoni", "mushroom");
+ *     Pizza p1 = new Pizza("large", "tomato", "pepperoni", "mushroom");
+ *     Drink d1 = new Drink("cola");
  *
- * We do NOT run Java. We only read the `new Pizza(...)` call, pull out the
- * String arguments, and turn them into a plain object the UI can render.
- *
- * The whole point is teaching: so when the student's code doesn't fit the
- * expected shape, we return a friendly, specific error instead of nothing.
+ * We do NOT run Java. We read each `new Pizza(...)` / `new Drink(...)` call,
+ * pull out the String arguments and the variable it's assigned to, and turn it
+ * into a plain object the UI can render. When a statement doesn't fit the
+ * expected shape we report a friendly, specific error tied to that statement.
  */
 
-export type ParsedPizza = {
+export const KNOWN_CLASSES = ['Pizza', 'Drink'] as const;
+
+export type PizzaInstance = {
+	kind: 'Pizza';
+	varName?: string;
 	size: string;
 	sauce: string;
 	toppings: string[];
-	/** the raw string arguments, in the order they were written */
 	args: string[];
 };
 
-export type ParseResult =
-	| { ok: true; pizza: ParsedPizza }
-	| { ok: false; error: string; hint?: string };
+export type DrinkInstance = {
+	kind: 'Drink';
+	varName?: string;
+	flavor: string;
+	args: string[];
+};
+
+export type Instance = PizzaInstance | DrinkInstance;
+
+/** An error tied to one instantiation statement. */
+export type StatementError = {
+	ordinal: number; // 1-based position among the `new` calls (0 = whole-program)
+	varName?: string;
+	className?: string;
+	error: string;
+	hint?: string;
+};
+
+export type ParseOutcome = {
+	instances: Instance[];
+	errors: StatementError[];
+};
 
 /** Remove `// line comments` so students can annotate their code freely. */
 function stripLineComments(code: string): string {
 	return code
 		.split('\n')
 		.map((line) => {
-			// naive but fine here: cut at // unless it's inside a string
 			let inString = false;
 			for (let i = 0; i < line.length; i++) {
 				const c = line[i];
@@ -39,18 +61,14 @@ function stripLineComments(code: string): string {
 		.join('\n');
 }
 
-/**
- * Starting at the index of an opening '(', return the index of its matching
- * ')', ignoring parentheses that appear inside string literals. Returns -1 if
- * no match is found (unbalanced).
- */
+/** Index of the ')' matching the '(' at openIndex, ignoring quotes. -1 if none. */
 function findMatchingParen(code: string, openIndex: number): number {
 	let depth = 0;
 	let inString = false;
 	for (let i = openIndex; i < code.length; i++) {
 		const c = code[i];
 		if (inString) {
-			if (c === '\\') i++; // skip escaped char
+			if (c === '\\') i++;
 			else if (c === '"') inString = false;
 			continue;
 		}
@@ -73,11 +91,8 @@ function splitArgs(argString: string): string[] {
 		const c = argString[i];
 		if (inString) {
 			current += c;
-			if (c === '\\') {
-				current += argString[++i] ?? '';
-			} else if (c === '"') {
-				inString = false;
-			}
+			if (c === '\\') current += argString[++i] ?? '';
+			else if (c === '"') inString = false;
 			continue;
 		}
 		if (c === '"') {
@@ -94,12 +109,12 @@ function splitArgs(argString: string): string[] {
 	return parts;
 }
 
+type LiteralResult = { ok: true; value: string } | { ok: false; error: string; hint?: string };
+
 /** Turn one raw argument token into its String value, or explain what's wrong. */
-function readStringLiteral(token: string): { ok: true; value: string } | { ok: false; error: string; hint?: string } {
+function readStringLiteral(token: string): LiteralResult {
 	const t = token.trim();
-	if (t === '') {
-		return { ok: false, error: 'There is an empty argument (an extra comma?).' };
-	}
+	if (t === '') return { ok: false, error: 'There is an empty argument (an extra comma?).' };
 	if (t.startsWith("'")) {
 		return {
 			ok: false,
@@ -114,7 +129,6 @@ function readStringLiteral(token: string): { ok: true; value: string } | { ok: f
 			hint: 'Every argument must be a String in double quotes, e.g. "large".'
 		};
 	}
-	// starts with a quote — make sure it's a single, closed string
 	let inString = false;
 	let value = '';
 	for (let i = 0; i < t.length; i++) {
@@ -125,81 +139,117 @@ function readStringLiteral(token: string): { ok: true; value: string } | { ok: f
 		}
 		if (inString) value += c;
 	}
-	if (inString) {
-		return { ok: false, error: `${t} is missing its closing quote (").` };
-	}
+	if (inString) return { ok: false, error: `${t} is missing its closing quote (").` };
 	return { ok: true, value };
 }
 
-export function parsePizza(code: string): ParseResult {
+/** The variable an instantiation is assigned to, if any: `Pizza p1 = new ...` -> "p1". */
+function variableNameBefore(code: string, newIndex: number): string | undefined {
+	const prefix = code.slice(0, newIndex);
+	const m = prefix.match(/([A-Za-z_]\w*)\s*=\s*$/);
+	return m ? m[1] : undefined;
+}
+
+export function parseProgram(code: string): ParseOutcome {
 	const cleaned = stripLineComments(code);
+	const instances: Instance[] = [];
+	const errors: StatementError[] = [];
 
-	// Find a `new <ClassName>(` instantiation.
-	const newMatch = cleaned.match(/new\s+([A-Za-z_]\w*)\s*\(/);
+	const re = /new\s+([A-Za-z_]\w*)\s*\(/g;
+	let m: RegExpExecArray | null;
+	let ordinal = 0;
 
-	if (!newMatch) {
-		if (/\bPizza\s*\(/.test(cleaned)) {
-			return {
-				ok: false,
-				error: 'You are calling the constructor without creating an object.',
-				hint: 'Use the `new` keyword to instantiate: new Pizza("large", "tomato", ...).'
-			};
+	while ((m = re.exec(cleaned)) !== null) {
+		ordinal += 1;
+		const className = m[1];
+		const varName = variableNameBefore(cleaned, m.index);
+		const openIndex = m.index + m[0].length - 1;
+		const closeIndex = findMatchingParen(cleaned, openIndex);
+
+		if (closeIndex === -1) {
+			errors.push({
+				ordinal,
+				varName,
+				className,
+				error: 'This constructor call is missing its closing parenthesis `)`.'
+			});
+			break; // can't reliably keep scanning past an unbalanced call
 		}
-		return {
-			ok: false,
-			error: 'No object is being created yet.',
-			hint: 'Instantiate a pizza with the constructor: new Pizza("large", "tomato", ...).'
-		};
+		re.lastIndex = closeIndex + 1;
+
+		const argString = cleaned.slice(openIndex + 1, closeIndex);
+		const values: string[] = [];
+		let argError: LiteralResult | null = null;
+		if (argString.trim() !== '') {
+			for (const raw of splitArgs(argString)) {
+				const parsed = readStringLiteral(raw);
+				if (!parsed.ok) {
+					argError = parsed;
+					break;
+				}
+				values.push(parsed.value);
+			}
+		}
+		if (argError && !argError.ok) {
+			errors.push({ ordinal, varName, className, error: argError.error, hint: argError.hint });
+			continue;
+		}
+
+		// Validate the class + its arguments.
+		if (className === 'Pizza') {
+			if (values.length < 2) {
+				errors.push({
+					ordinal,
+					varName,
+					className,
+					error: 'A Pizza needs at least a size and a sauce.',
+					hint: 'For example: new Pizza("medium", "tomato", "cheese").'
+				});
+				continue;
+			}
+			const [size, sauce, ...toppings] = values;
+			instances.push({ kind: 'Pizza', varName, size, sauce, toppings, args: values });
+		} else if (className === 'Drink') {
+			if (values.length !== 1) {
+				errors.push({
+					ordinal,
+					varName,
+					className,
+					error:
+						values.length === 0
+							? 'A Drink needs a flavor.'
+							: 'A Drink takes exactly one argument: its flavor.',
+					hint: 'For example: new Drink("cola").'
+				});
+				continue;
+			}
+			instances.push({ kind: 'Drink', varName, flavor: values[0], args: values });
+		} else {
+			const lower = className.toLowerCase();
+			const caseMatch = KNOWN_CLASSES.find((c) => c.toLowerCase() === lower);
+			errors.push({
+				ordinal,
+				varName,
+				className,
+				error: `\`${className}\` is not a class you can make here.`,
+				hint: caseMatch
+					? `Java is case-sensitive — did you mean \`${caseMatch}\`?`
+					: `Available classes: ${KNOWN_CLASSES.join(' and ')}.`
+			});
+		}
 	}
 
-	const className = newMatch[1];
-	if (className !== 'Pizza') {
-		const hint =
-			className.toLowerCase() === 'pizza'
-				? 'Java is case-sensitive — the class is `Pizza` with a capital P.'
-				: 'The class we are instantiating is called `Pizza`.';
-		return { ok: false, error: `\`${className}\` is not the class we are making.`, hint };
+	// Nothing was instantiated at all — nudge toward the constructor.
+	if (ordinal === 0) {
+		const calledWithoutNew = KNOWN_CLASSES.some((c) => new RegExp(`\\b${c}\\s*\\(`).test(cleaned));
+		errors.push({
+			ordinal: 0,
+			error: calledWithoutNew
+				? 'You are calling a constructor without creating an object.'
+				: 'No objects are being created yet.',
+			hint: 'Instantiate with `new`, e.g. new Pizza("large", "tomato", "pepperoni") or new Drink("cola").'
+		});
 	}
 
-	const openIndex = cleaned.indexOf('(', newMatch.index!);
-	const closeIndex = findMatchingParen(cleaned, openIndex);
-	if (closeIndex === -1) {
-		return {
-			ok: false,
-			error: 'The constructor call is missing its closing parenthesis `)`.'
-		};
-	}
-
-	const argString = cleaned.slice(openIndex + 1, closeIndex);
-
-	// No arguments at all.
-	if (argString.trim() === '') {
-		return {
-			ok: false,
-			error: 'The constructor was called with no arguments.',
-			hint: 'A pizza needs at least a size and a sauce: new Pizza("large", "tomato").'
-		};
-	}
-
-	const rawArgs = splitArgs(argString);
-	const values: string[] = [];
-	for (const raw of rawArgs) {
-		const parsed = readStringLiteral(raw);
-		if (!parsed.ok) return parsed;
-		values.push(parsed.value);
-	}
-
-	if (values.length < 2) {
-		return {
-			ok: false,
-			error: 'The constructor needs at least a size and a sauce.',
-			hint: 'For example: new Pizza("medium", "tomato", "cheese").'
-		};
-	}
-
-	const [size, sauce, ...toppings] = values;
-	return {
-		ok: true,
-		pizza: { size, sauce, toppings, args: values }
-	};
+	return { instances, errors };
 }

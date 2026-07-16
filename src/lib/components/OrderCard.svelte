@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Order } from '$lib/pizza';
-	import { SAUCES, SIZES, TOPPINGS, toppingIcon } from '$lib/pizza';
+	import { SAUCES, SIZES, TOPPINGS, DRINKS, toppingIcon, normalize } from '$lib/pizza';
 
 	let { order, index, total }: { order: Order; index: number; total: number } = $props();
 </script>
@@ -9,24 +9,38 @@
 	<header>
 		<span class="avatar" aria-hidden="true">{order.avatar}</span>
 		<div>
-			<h2>{order.customer}’s order</h2>
+			<h2>{order.customer}</h2>
 			<p class="ticket">Ticket {index + 1} of {total}</p>
 		</div>
 	</header>
 
 	<blockquote>“{order.request}”</blockquote>
 
-	<ul class="specs">
-		<li><span class="k">Size</span><span class="v">{SIZES[order.size]?.label ?? order.size}</span></li>
-		<li><span class="k">Sauce</span><span class="v">{SAUCES[order.sauce]?.label ?? order.sauce}</span></li>
-		<li class="toppings">
-			<span class="k">Toppings</span>
-			<span class="chips">
-				{#each order.toppings as t (t)}
-					<span class="chip">{toppingIcon(t)} {TOPPINGS[t]?.label ?? t}</span>
-				{/each}
-			</span>
-		</li>
+	<ul class="items">
+		{#each order.items as item, i (i)}
+			<li>
+				<span class="qty">{item.count}×</span>
+				{#if item.kind === 'Pizza'}
+					<div class="lines">
+						<span class="what">
+							{SIZES[normalize(item.size)]?.label ?? item.size}
+							{SAUCES[normalize(item.sauce)]?.label ?? item.sauce} pizza
+						</span>
+						{#if item.toppings.length}
+							<span class="chips">
+								{#each item.toppings as t (t)}
+									<span class="chip">{toppingIcon(t)} {TOPPINGS[normalize(t)]?.label ?? t}</span>
+								{/each}
+							</span>
+						{/if}
+					</div>
+				{:else}
+					<div class="lines">
+						<span class="what">{DRINKS[normalize(item.flavor)]?.label ?? item.flavor} drink</span>
+					</div>
+				{/if}
+			</li>
+		{/each}
 	</ul>
 </article>
 
@@ -58,33 +72,32 @@
 	blockquote {
 		margin: 0.9rem 0;
 		font-style: italic;
-		color: var(--text);
 		line-height: 1.45;
 	}
-	.specs {
+	.items {
 		list-style: none;
 		margin: 0;
 		padding: 0;
 		display: grid;
-		gap: 0.5rem;
+		gap: 0.6rem;
 	}
-	.specs li {
+	.items li {
 		display: flex;
-		gap: 0.75rem;
+		gap: 0.6rem;
 		align-items: baseline;
 	}
-	.specs li.toppings {
-		align-items: flex-start;
+	.qty {
+		font-family: ui-monospace, Menlo, Consolas, monospace;
+		font-weight: 700;
+		color: var(--accent);
+		flex: 0 0 auto;
 	}
-	.k {
-		flex: 0 0 4.5rem;
-		font-size: 0.75rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--muted);
-		padding-top: 0.15rem;
+	.lines {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
 	}
-	.v {
+	.what {
 		font-weight: 600;
 	}
 	.chips {
@@ -97,6 +110,6 @@
 		border: 1px solid var(--border);
 		border-radius: 999px;
 		padding: 0.15rem 0.6rem;
-		font-size: 0.85rem;
+		font-size: 0.82rem;
 	}
 </style>

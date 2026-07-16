@@ -1,10 +1,20 @@
 # 🍕 Pizza Constructor
 
-An interactive activity for teaching **classes, objects, constructors, and instantiation** in Java.
+An interactive activity for teaching **classes, objects, constructors, instantiation, and multiple
+instances** in Java.
 
-A customer places an **order** on the right. The student writes Java on the left to instantiate a
-`Pizza` object that matches the order. When their `new Pizza(...)` call builds the right object, the
-pizza renders and the order is served.
+A customer places an **order** on the right (e.g. "one large BBQ pizza and two colas"). The student
+writes Java on the left, creating **one object per item** — `new Pizza(...)` and `new Drink(...)`. Each
+object appears as a tile on a serving tray, labelled with its variable name. When the bag of objects
+they built matches the order, it's served.
+
+Two classes are involved:
+
+- `Pizza(String size, String sauce, String... toppings)`
+- `Drink(String flavor)`
+
+Quantity is expressed by **repeated `new` statements** — writing `new Pizza(...)` twice makes two
+objects — which is the whole point: a class is a mold you can pour many objects from.
 
 > Built with SvelteKit + the static adapter, so it deploys for **free** to GitHub Pages.
 > Live target URL: **https://sebdeveloper6952.github.io/classes-and-objects/**
@@ -12,31 +22,23 @@ pizza renders and the order is served.
 ## How it works (the important teaching detail)
 
 The app **does not run Java** — GitHub Pages is static hosting, so there's no JVM. Instead, a small,
-forgiving parser (`src/lib/parser.ts`) reads the student's `new Pizza(...)` call, extracts the String
-arguments, and turns them into an object. This keeps the lesson tightly focused on **one concept — the
-constructor** — and gives *instant, specific* feedback (wrong quotes, missing `new`, wrong class name,
-too few arguments, …) which become mini teaching moments.
+forgiving parser (`src/lib/parser.ts`) scans the student's code for **every** `new Pizza(...)` /
+`new Drink(...)` call, captures each object's variable name and String arguments, and turns them into
+objects. This keeps the lesson tightly focused on **constructors and instantiation** and gives
+*instant, specific* feedback per statement (wrong quotes, missing `new`, unknown class, too few
+arguments, …) which become mini teaching moments.
 
-The constructor the students are targeting:
-
-```java
-public class Pizza {
-    String size;
-    String sauce;
-    String[] toppings;
-
-    public Pizza(String size, String sauce, String... toppings) { ... }
-}
-```
-
-So a valid answer looks like:
+So a valid answer to "one large BBQ pizza and two colas" looks like:
 
 ```java
-Pizza pizza = new Pizza("large", "tomato", "pepperoni", "mushroom");
+Pizza p1 = new Pizza("large", "bbq", "chicken", "onion", "bacon");
+Drink d1 = new Drink("cola");
+Drink d2 = new Drink("cola");
 ```
 
-Matching is **case-insensitive** and **topping order doesn't matter**, so students aren't punished for
-harmless differences — only for building the wrong object.
+Matching is a **multiset compare**: it's **case-insensitive**, **topping order doesn't matter**, and it
+counts quantities — so feedback can say things like *"Missing: 1× Cola"* or *"Remove: 1× medium pizza"*.
+Students aren't punished for harmless differences, only for building the wrong set of objects.
 
 ## Run locally
 
@@ -73,9 +75,11 @@ Locally `BASE_PATH` stays empty, so the app runs at the root during `npm run dev
 
 Everything content-related lives in `src/lib/pizza.ts`:
 
-- **`ORDERS`** — add / edit / reorder the customer orders (each is one "level").
-- **`TOPPINGS`** — add a topping name + its icon (used both in the order chips and on the pizza).
-- **`SIZES` / `SAUCES`** — available sizes (affect the rendered diameter) and sauces (affect color).
+- **`ORDERS`** — add / edit / reorder the customer orders (each is one "level"). An order is a list of
+  line-items, each with a `count`, so "2 colas" is just `{ kind: 'Drink', count: 2, flavor: 'cola' }`.
+- **`TOPPINGS`** — add a topping name + its icon (used in the order chips and on the pizza).
+- **`SIZES` / `SAUCES`** — sizes (affect the rendered diameter) and sauces (affect color).
+- **`DRINKS`** — drink flavors + the color of the cup.
 
 No other files need to change to add new orders.
 
@@ -84,12 +88,14 @@ No other files need to change to add new orders.
 ```
 src/
   lib/
-    parser.ts               # reads `new Pizza(...)` -> object (+ friendly errors)
-    pizza.ts                # domain: sizes, sauces, toppings, ORDERS, matching
+    parser.ts               # scans for all new Pizza(...) / new Drink(...) -> objects (+ errors)
+    pizza.ts                # domain: sizes, sauces, toppings, drinks, ORDERS, multiset matching
     components/
-      OrderCard.svelte      # the customer's order (the target)
-      PizzaView.svelte      # SVG pizza rendered from the parsed object
+      OrderCard.svelte      # the customer's order with quantities (the target)
+      InstanceTile.svelte   # one tile per object (var name + class + state)
+      PizzaView.svelte      # SVG pizza; DrinkView.svelte — SVG cup
+      CodeEditor.svelte     # CodeMirror editor (editable + read-only modes)
   routes/
-    +page.svelte            # the two-pane game UI
+    +page.svelte            # the two-pane game UI + serving tray
     +layout.svelte / .ts    # prerender config + favicon
 ```
