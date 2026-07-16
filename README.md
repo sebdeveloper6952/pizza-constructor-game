@@ -17,7 +17,7 @@ Quantity is expressed by **repeated `new` statements** — writing `new Pizza(..
 objects — which is the whole point: a class is a mold you can pour many objects from.
 
 > Built with SvelteKit + the static adapter, so it deploys for **free** to GitHub Pages.
-> Live target URL: **https://sebdeveloper6952.github.io/classes-and-objects/**
+> Live target URL: **https://sebdeveloper6952.github.io/pizza-constructor-game/**
 
 ## How it works (the important teaching detail)
 
@@ -58,13 +58,13 @@ npm run check      # type-check
 ## Deploy to GitHub Pages
 
 This repo ships a workflow at `.github/workflows/deploy.yml` that builds and deploys automatically to
-**https://sebdeveloper6952.github.io/classes-and-objects/**.
+**https://sebdeveloper6952.github.io/pizza-constructor-game/**.
 
-1. Create a GitHub repository named **`classes-and-objects`** and push this project to it.
+1. Create a GitHub repository named **`pizza-constructor-game`** and push this project to it.
    (A project site is served under a path equal to the repo name, so the repo name **must** be
-   `classes-and-objects` for the URL above to work.)
+   `pizza-constructor-game` for the URL above to work.)
 2. In the repo: **Settings → Pages → Build and deployment → Source → GitHub Actions**.
-3. Push to `main`. The workflow builds with `BASE_PATH=/classes-and-objects` and publishes the site.
+3. Push to `master`. The workflow builds with `BASE_PATH=/pizza-constructor-game` and publishes the site.
 
 Locally `BASE_PATH` stays empty, so the app runs at the root during `npm run dev`.
 

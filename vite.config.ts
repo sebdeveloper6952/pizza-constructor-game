@@ -5,7 +5,7 @@ import { defineConfig } from 'vite';
 
 // GitHub Pages serves project sites from https://<user>.github.io/<repo>/,
 // so we need a base path in production. Set BASE_PATH at build time, e.g.
-//   BASE_PATH=/classes-and-objects npm run build
+//   BASE_PATH=/pizza-constructor-game npm run build
 // Locally (dev / preview) it stays empty so the app runs at the root.
 const base = (process.env.BASE_PATH ?? '') as '' | `/${string}`;
 
