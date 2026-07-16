@@ -239,6 +239,22 @@ export function parseProgram(code: string): ParseOutcome {
 		}
 	}
 
+	// Two objects can't share a variable name — that's a Java compile error.
+	const counts = new Map<string, number>();
+	for (const inst of instances) {
+		if (inst.varName) counts.set(inst.varName, (counts.get(inst.varName) ?? 0) + 1);
+	}
+	for (const [name, n] of counts) {
+		if (n > 1) {
+			errors.push({
+				ordinal: 0,
+				varName: name,
+				error: `The variable name \`${name}\` is used for ${n} objects.`,
+				hint: 'Each object needs its own unique name — Java won’t let you declare the same variable twice. Try p1, p2, …'
+			});
+		}
+	}
+
 	// Nothing was instantiated at all — nudge toward the constructor.
 	if (ordinal === 0) {
 		const calledWithoutNew = KNOWN_CLASSES.some((c) => new RegExp(`\\b${c}\\s*\\(`).test(cleaned));
