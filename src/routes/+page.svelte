@@ -411,6 +411,10 @@ Pizza p1 = new Pizza("medium", "tomato", "cheese");`;
 		.panes {
 			grid-template-columns: 1fr;
 		}
+		/* Stack with the customer's order on top, editor below. */
+		.result-pane {
+			order: -1;
+		}
 		.topbar {
 			grid-template-columns: 1fr auto;
 		}
