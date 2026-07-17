@@ -27,8 +27,6 @@ public class Drink {
 }`;
 
 	const STARTER = `// Create ONE object per item the order needs.
-// You have two classes:
-//   Pizza(size, sauce, toppings...)   and   Drink(flavor)
 
 Pizza p1 = new Pizza("medium", "tomato", "cheese");`;
 
